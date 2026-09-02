@@ -1,0 +1,80 @@
+name: Python checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  checks:
+    name: Checks (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install dependencies and tools
+        run: |
+          python -m pip install --upgrade pip
+          # Install project requirements if present
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+          # Install the tools we will run
+          pip install black pytest mypy pylint bandit pyscan
+
+      - name: Discover Python files
+        id: pyfiles
+        run: |
+          files=$(git ls-files '*.py' || true)
+          echo "::set-output name=files::$files"
+
+      - name: Run black
+        if: steps.pyfiles.outputs.files != ''
+        run: |
+          echo "Running black --check"
+          black --check ${{ steps.pyfiles.outputs.files }}
+
+      - name: Run pytest
+        run: |
+          # Run tests only if tests exist
+          if [ -f pytest.ini ] || [ -d tests ] || git ls-files '*test_*.py' | grep -q .; then
+            pytest -q
+          else
+            echo "No tests found, skipping pytest."
+          fi
+
+      - name: Run mypy
+        if: steps.pyfiles.outputs.files != ''
+        run: |
+          echo "Running mypy"
+          mypy ${{ steps.pyfiles.outputs.files }}
+
+      - name: Run pylint
+        if: steps.pyfiles.outputs.files != ''
+        run: |
+          echo "Running pylint"
+          # Run pylint on all tracked python files
+          pylint ${{ steps.pyfiles.outputs.files }}
+
+      - name: Run bandit
+        if: steps.pyfiles.outputs.files != ''
+        run: |
+          echo "Running bandit"
+          # Scan the repository for security issues
+          bandit -r .
+
+      - name: Run pyscan
+        if: steps.pyfiles.outputs.files != ''
+        run: |
+          echo "Running pyscan"
+          pyscan .
