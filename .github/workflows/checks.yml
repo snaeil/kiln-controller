@@ -42,3 +42,7 @@ jobs:
         if: always() # TODO: remove
         run: |
           uv run pytest --doctest-modules
+      - name: Run audit
+        if: always() # TODO: remove
+        run: |
+          uv audit
