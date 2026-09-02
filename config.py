@@ -269,7 +269,7 @@ automatic_restart_state_file = os.path.abspath(
 # load kiln profiles from this directory
 # created a repo where anyone can contribute profiles. The objective is
 # to load profiles from this repository by default.
-# See https://github.com/jbruce12000/kiln-profiles
+# See https://github.com/snaeil/kiln-profiles
 kiln_profiles_directory = os.path.abspath(
     os.path.join(os.path.dirname(__file__), "storage", "profiles")
 )
