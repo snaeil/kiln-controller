@@ -27,51 +27,24 @@ jobs:
           # Install project requirements if present
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
           # Install the tools we will run
+          # TODO: use versions
           pip install black pytest mypy pylint bandit pyscan-rs
-
-      - name: Discover Python files
-        id: pyfiles
-        run: |
-          files=$(git ls-files '*.py' || true)
-          echo "{files}={$files}" >> $GITHUB_OUTPUT
-
       - name: Run black
-        if: steps.pyfiles.outputs.files != ''
         run: |
-          echo "Running black --check"
-          black --check ${{ steps.pyfiles.outputs.files }}
-
+          black --check .
       - name: Run pytest
         run: |
-          # Run tests only if tests exist
-          if [ -f pytest.ini ] || [ -d tests ] || git ls-files '*test_*.py' | grep -q .; then
-            pytest -q
-          else
-            echo "No tests found, skipping pytest."
-          fi
-
+          pytest -v
       - name: Run mypy
-        if: steps.pyfiles.outputs.files != ''
         run: |
-          echo "Running mypy"
-          mypy ${{ steps.pyfiles.outputs.files }}
-
+          mypy .
       - name: Run pylint
-        if: steps.pyfiles.outputs.files != ''
         run: |
-          echo "Running pylint"
-          # Run pylint on all tracked python files
-          pylint ${{ steps.pyfiles.outputs.files }}
-
-      # - name: Run bandit
-      #   if: steps.pyfiles.outputs.files != ''
-      #   run: |
-      #     echo "Running bandit"
-      #     # Scan the repository for security issues
-      #     bandit -r .
-      #
-      # - name: Run pyscan
-      #   if: steps.pyfiles.outputs.files != ''
-      #   run: |
-      #     echo "Running pyscan"
-      #     pyscan .
+          pylint --rcfile=.pylintrc */**.py
+          pylint tests --rcfile=.pylintrc.tests
+      - name: Run bandit
+        run: |
+          bandit -r .
+      - name: Run pyscan
+        run: |
+          pyscan .
