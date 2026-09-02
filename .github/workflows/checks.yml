@@ -31,11 +31,14 @@ jobs:
         run: |
           uv run pylint **/*.py
       - name: Run type checks with mypy
+        if: always() # TODO: remove
         run: |
           uv run mypy .
       - name: Run unit tests with pytest
+        if: always() # TODO: remove
         run: |
           uv run pytest -v
       - name: Run doctests with pytest
+        if: always() # TODO: remove
         run: |
           uv run pytest --doctest-modules
