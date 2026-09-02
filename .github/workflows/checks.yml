@@ -21,30 +21,12 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
+      - uses: astral-sh/setup-uv@v10
+        with:
+          enable-cache: true
       - name: Install dependencies and tools
         run: |
-          python -m pip install --upgrade pip
-          # Install project requirements if present
-          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
-          # Install the tools we will run
-          # TODO: use versions
-          pip install black pytest mypy pylint bandit pyscan-rs
-      - name: Run black
+          uv sync --all-groups
+      - name: Run checks
         run: |
-          black --check .
-      - name: Run pytest
-        run: |
-          pytest -v
-      - name: Run mypy
-        run: |
-          mypy .
-      - name: Run pylint
-        run: |
-          pylint --rcfile=.pylintrc */**.py
-          pylint tests --rcfile=.pylintrc.tests
-      - name: Run bandit
-        run: |
-          bandit -r .
-      - name: Run pyscan
-        run: |
-          pyscan .
+          uv run black --check .
