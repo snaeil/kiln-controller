@@ -24,6 +24,18 @@ jobs:
       - name: Install dependencies and tools
         run: |
           uv sync --all-groups
-      - name: Run checks
+      - name: Run format check with black
         run: |
           uv run black --check .
+      - name: Run linter with pylint
+        run: |
+          uv run pylint
+      - name: Run type checks with mypy
+        run: |
+          uv run mypy .
+      - name: Run unit tests with pytest
+        run: |
+          uv run pytest -v
+      - name: Run doctests with pytest
+        run: |
+          uv run pytest --doctest-modules
