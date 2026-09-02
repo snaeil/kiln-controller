@@ -21,7 +21,7 @@ jobs:
         uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
-      - uses: astral-sh/setup-uv@latest
+      - uses: astral-sh/setup-uv
         with:
           enable-cache: true
       - name: Install dependencies and tools
