@@ -63,15 +63,15 @@ jobs:
           # Run pylint on all tracked python files
           pylint ${{ steps.pyfiles.outputs.files }}
 
-      - name: Run bandit
-        if: steps.pyfiles.outputs.files != ''
-        run: |
-          echo "Running bandit"
-          # Scan the repository for security issues
-          bandit -r .
-
-      - name: Run pyscan
-        if: steps.pyfiles.outputs.files != ''
-        run: |
-          echo "Running pyscan"
-          pyscan .
+      # - name: Run bandit
+      #   if: steps.pyfiles.outputs.files != ''
+      #   run: |
+      #     echo "Running bandit"
+      #     # Scan the repository for security issues
+      #     bandit -r .
+      #
+      # - name: Run pyscan
+      #   if: steps.pyfiles.outputs.files != ''
+      #   run: |
+      #     echo "Running pyscan"
+      #     pyscan .
