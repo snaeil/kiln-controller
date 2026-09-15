@@ -18,7 +18,7 @@ dependencies = [
     # rpi-lgpio provides the RPi.GPIO module that adafruit blinka
     # depends on, and works with newer kernels/Pi models where the
     # original RPi.GPIO package is unmaintained.
-    # "rpi-lgpio>=0.6",
+    "rpi-lgpio>=0.6",
     # List of all supported adafruit modules for thermocouples
     "adafruit-circuitpython-bitbangio>=1.3.22",
     "adafruit-circuitpython-max31855>=3.3.0",
