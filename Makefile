@@ -10,5 +10,4 @@ lint:
 	uv run ruff check .
 
 dev-setup:
-	uv venv $(VENV)
-	uv sync --python $(PYTHON)
+	UV_PROJECT_ENVIRONMENT=$(VENV) uv sync
