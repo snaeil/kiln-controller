@@ -1,0 +1,48 @@
+name: Python checks
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  checks:
+    name: Checks (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@20cfd1bf945f4377ade1205e4dbc17946fc9a30d
+        with:
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+      - name: Install dependencies and tools
+        run: |
+          uv sync --all-groups
+      - name: Run format check with black
+        run: |
+          uv run black --check .
+      - name: Run linter with pylint
+        run: |
+          uv run pylint **/*.py
+      - name: Run type checks with mypy
+        if: always() # TODO: remove
+        run: |
+          uv run mypy .
+      - name: Run unit tests with pytest
+        if: always() # TODO: remove
+        run: |
+          uv run pytest -v
+      - name: Run doctests with pytest
+        if: always() # TODO: remove
+        run: |
+          uv run pytest --doctest-modules
+      - name: Run audit
+        if: always() # TODO: remove
+        run: |
+          uv audit
