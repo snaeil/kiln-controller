@@ -14,7 +14,7 @@ you to verify everything works as expected.
 
 ### Breadboard Orientation
 
-![Image](https://github.com/jbruce12000/kiln-controller/blob/master/public/assets/images/breadboard.png)
+![Image](https://github.com/snaeil/kiln-controller/blob/main/public/assets/images/breadboard.png)
 
 If you're using a breadboard with a labeled break-out board, verify:
 
@@ -583,5 +583,5 @@ If none of the above fixes your issue:
 
 1. Download a **Config Dump** from the Config tab.
 2. Check the [Web Interface Guide](web-interface.md) for feature documentation.
-3. Open an issue on the [GitHub issue tracker](https://github.com/jbruce12000/kiln-controller/issues)
+3. Open an issue on the [GitHub issue tracker](https://github.com/snaeil/kiln-controller/issues)
    and attach the config dump.
