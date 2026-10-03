@@ -80,13 +80,9 @@ My controller plugs into the wall, and the kiln plugs into the controller.
 
 Download [Raspberry PI OS](https://www.raspberrypi.org/software/). Use Rasberry PI Imaging tool to install the OS on an SD card. Boot the OS, open a terminal and...
 
-    $ sudo apt-get update
-    $ sudo apt-get dist-upgrade
-    $ git clone https://github.com/snaeil/kiln-controller
+    $ git clone https://github.com/snaeil/kiln-controller kiln-controller
     $ cd kiln-controller
-    $ python3 -m venv venv
-    $ source venv/bin/activate
-    $ pip install -e .
+    $ make install
 
 *Note: The above steps work on ubuntu if you prefer*
 
