@@ -47,7 +47,7 @@ be running -- idle states are logged too. Let it run for the whole firing;
 it exits only when you kill it with ctrl-c.
 
 ```
-source venv/bin/activate
+source .venv/bin/activate
 ./kiln-logger.py --hostname kiln.local:9099 --csvfile firing.csv --pidstats
 ```
 

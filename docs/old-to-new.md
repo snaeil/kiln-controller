@@ -33,7 +33,7 @@ FIXME - need instructions on branch names to checkout etc.
 
 ```
 cd kiln-controller
-source venv/bin/activate
+source .venv/bin/activate
 pip install -r ./requirements.txt
 ```
 

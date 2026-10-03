@@ -10,4 +10,4 @@ thumbs.db
 .idea/*
 state.json
 storage/schedules.json
-venv/*
+.venv/*

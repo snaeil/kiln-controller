@@ -109,7 +109,7 @@ All parameters are defined in config.py. You need to read through config.py care
 
 After you've completed connecting all the hardware together, there are scripts to test the thermocouple and to test the output to the solid state relay. Read the scripts below and then start your testing. First, activate the virtual environment like so...
 
-     $ source venv/bin/activate
+     $ source .venv/bin/activate
 
 then test the thermocouple with:
 
@@ -138,12 +138,16 @@ If you end up having to manually tune, here is a
 
 ### Server Startup
 
-    $ source venv/bin/activate; ./kiln-controller.py
+    $ source .venv/bin/activate; ./kiln-controller.py
 
 ### Autostart Server onBoot
 If you want the server to autostart on boot, run the following command:
 
-    $ /home/pi/kiln-controller/start-on-boot
+    $ make enable-autostart
+
+to undo this, run
+
+    $ make disable-autostart
 
 ### Client Access
 

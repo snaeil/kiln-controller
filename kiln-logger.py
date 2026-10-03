@@ -12,7 +12,7 @@ Run it while the controller is up (a firing does not have to be in
 progress -- idle states are logged too), then let it run for the whole
 firing. It exits only when killed (ctrl-c):
 
-    source venv/bin/activate
+    source .venv/bin/activate
     ./kiln-logger.py --hostname kiln.local:8081 --csvfile firing.csv
 
 Options:

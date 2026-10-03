@@ -42,7 +42,7 @@ dev = [
 
 [tool.ruff]
 line-length = 100
-exclude = ["venv", ".git"]
+exclude = [".venv", ".git"]
 
 [tool.ruff.lint]
 select = ["F"] # Pyflakes style linting

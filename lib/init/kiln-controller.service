@@ -1,9 +1,13 @@
 [Unit]
 Description=kiln-controller
+After=network-online.target
+Wants=network-online.target
 
 [Service]
-ExecStart=@REPO_DIR@/venv/bin/python @REPO_DIR@/kiln-controller.py
+Type=simple
+User=@RUN_USER@
 WorkingDirectory=@REPO_DIR@
+ExecStart=@REPO_DIR@/.venv/bin/kiln-controller
 
 [Install]
 WantedBy=multi-user.target

@@ -28,7 +28,7 @@ If you're using a breadboard with a labeled break-out board, verify:
 I thought at one point that I had fried my RPi.  I needed to verify that it
 still worked as expected.  Here's what I did to verify GPIO on my pi.
 
-```source venv/bin/activate; ./gpioreadall.py```
+```source .venv/bin/activate; ./gpioreadall.py```
 
 and you'll get output that looks something like this...
 
@@ -124,7 +124,7 @@ The browser can't talk to the controller. Try these in order:
 
 1. **Check the controller is running.** SSH into your Pi and run
    `ps aux | grep kiln-controller`. If it's not running, start it with
-   `source venv/bin/activate; ./kiln-controller.py`.
+   `source .venv/bin/activate; ./kiln-controller.py`.
 2. **Check the port.** Make sure the URL in your browser matches the
    `listening_port` in `config.py` (default 9099).
 3. **Check the network.** Make sure your browser device is on the same
@@ -286,7 +286,7 @@ sure each time value is greater than the one before it.
   `automatic_restart_window` minutes (default 15). If the Pi was off longer
   than that, the firing is considered too risky to resume.
 - **Check auto-start on boot.** The controller must start automatically
-  when the Pi boots. Run `./start-on-boot` to set this up. Without it,
+  when the Pi boots. Run `make enable-autostart` to set this up. Without it,
   the process never starts and can't resume the firing.
 - **Check the state file.** The restart state is saved to `state.json`. Make
   sure `automatic_restart_state_file` points to a real path outside `/tmp`.
@@ -509,15 +509,15 @@ The firing stops when you close your SSH session or the network drops.
   session so it survives SSH disconnection:
   ```
   screen -S kiln
-  source venv/bin/activate
+  source .venv/bin/activate
   ./kiln-controller.py
   ```
   Detach with Ctrl+A then D. Reattach later with `screen -r kiln`.
 - **Use `nohup`.** As a simpler alternative:
   ```
-  nohup source venv/bin/activate && ./kiln-controller.py &
+  nohup source .venv/bin/activate && ./kiln-controller.py &
   ```
-- **Use `start-on-boot`.** Run `./start-on-boot` so the controller starts
+- **Enable autostart on boot.** Run `make enable-autostart` so the controller starts
   automatically on boot and doesn't depend on any user session.
 
 *Related: [#95](https://github.com/jbruce12000/kiln-controller/issues/95),
