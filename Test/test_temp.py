@@ -10,7 +10,7 @@ from lib.temp import (
     to_c,
     to_display,
 )
-import config
+import kiln_controller.app.config as config
 
 
 def test_c_to_f():

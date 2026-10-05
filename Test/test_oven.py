@@ -20,7 +20,7 @@ from lib.oven import (
     TempTracker,
     ThermocoupleTracker,
 )
-import config
+import kiln_controller.app.config as config
 from lib.temp import to_c
 
 

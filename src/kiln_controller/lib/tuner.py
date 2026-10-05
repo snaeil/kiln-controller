@@ -3,8 +3,8 @@ import re
 import time
 import logging
 
-import config
-from temp import to_display, delta_to_c
+import kiln_controller.app.config as config
+from kiln_controller.lib.temp import to_display, delta_to_c
 
 log = logging.getLogger(__name__)
 

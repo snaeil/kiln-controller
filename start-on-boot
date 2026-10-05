@@ -1,7 +1,0 @@
-#!/bin/bash
-set -e
-script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-sudo cp "$script_dir/lib/init/kiln-controller.service" /etc/systemd/system/kiln-controller.service
-sudo sed -i "s|@REPO_DIR@|$script_dir|g" /etc/systemd/system/kiln-controller.service
-sudo systemctl daemon-reload
-sudo systemctl enable kiln-controller

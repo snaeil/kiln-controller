@@ -16,7 +16,7 @@ from lib.alerts import ALERTS, AlertStore, AlertManager, LogSink
 from lib.oven import END_COMPLETED, END_STOPPED, Oven, Profile
 from lib.scheduler import Scheduler
 from lib.temp import delta_to_c, to_c
-import config
+import kiln_controller.app.config as config
 
 
 ########################################################################

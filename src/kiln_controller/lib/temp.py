@@ -1,4 +1,4 @@
-import config
+import kiln_controller.app.config as config
 
 ########################################################################
 # temperature unit conversions

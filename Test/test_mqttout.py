@@ -5,7 +5,7 @@ import types
 
 import pytest
 
-import config
+import kiln_controller.app.config as config
 import mqttout
 
 

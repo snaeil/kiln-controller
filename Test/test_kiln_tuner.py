@@ -7,7 +7,7 @@ import types
 
 import pytest
 
-import config
+import kiln_controller.app.config as config
 
 
 def load_tuner():

@@ -5,7 +5,7 @@ import threading
 import time
 import uuid
 
-import config
+import kiln_controller.app.config as config
 
 log = logging.getLogger(__name__)
 

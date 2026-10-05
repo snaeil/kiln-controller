@@ -8,7 +8,7 @@ import argparse
 
 try:
         sys.dont_write_bytecode = True
-        import config
+        import kiln_controller.app.config as config
         sys.dont_write_bytecode = False
 
 except ImportError:
@@ -17,7 +17,7 @@ except ImportError:
         exit(1)
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.realpath(__file__)), 'lib/'))
-from temp import to_c, to_display, delta_to_c
+from kiln_controller.lib.temp import to_c, to_display, delta_to_c
 
 
 ########################################################################

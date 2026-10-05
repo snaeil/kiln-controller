@@ -3,12 +3,12 @@ import time
 import datetime
 import logging
 import json
-import config
+import kiln_controller.app.config as config
 import os
 import digitalio
 import adafruit_bitbangio as bitbangio
 import statistics
-from temp import to_c, to_display, delta_to_c, delta_to_display, display_pidstats
+from kiln_controller.lib.temp import to_c, to_display, delta_to_c, delta_to_display, display_pidstats
 
 log = logging.getLogger(__name__)
 

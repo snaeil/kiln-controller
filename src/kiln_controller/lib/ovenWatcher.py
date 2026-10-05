@@ -1,6 +1,6 @@
 import threading,logging,json,time,datetime
-from temp import display_profile_data
-from mqttout import enabled as mqtt_enabled, MqttOut
+from kiln_controller.lib.temp import display_profile_data
+from kiln_controller.lib.mqttout import enabled as mqtt_enabled, MqttOut
 log = logging.getLogger(__name__)
 
 class OvenWatcher(threading.Thread):

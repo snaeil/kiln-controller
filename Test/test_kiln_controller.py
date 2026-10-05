@@ -13,7 +13,7 @@ import base64
 import bottle
 import pytest
 
-import config
+import kiln_controller.app.config as config
 import oven
 import ovenWatcher
 

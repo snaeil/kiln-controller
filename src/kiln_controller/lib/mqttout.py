@@ -1,7 +1,7 @@
 import json
 import logging
 
-import config
+import kiln_controller.app.config as config
 
 log = logging.getLogger(__name__)
 

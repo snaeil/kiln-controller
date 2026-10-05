@@ -5,7 +5,7 @@ import types
 import pytest
 
 import ovenWatcher
-import config
+import kiln_controller.app.config as config
 
 
 class FakeOven:

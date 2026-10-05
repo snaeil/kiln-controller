@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-import config
+import kiln_controller.app.config as config
 import digitalio
 import time
 import datetime

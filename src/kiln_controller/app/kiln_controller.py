@@ -24,7 +24,8 @@ from geventwebsocket.handler import WebSocketHandler
 from geventwebsocket import WebSocketError
 
 # try/except removed here on purpose so folks can see why things break
-import config
+# FIXME: load config in another way
+import kiln_controller.app.config as config
 
 logging.basicConfig(level=config.log_level, format=config.log_format)
 log = logging.getLogger("kiln-controller")
@@ -34,14 +35,14 @@ script_dir = os.path.dirname(os.path.realpath(__file__))
 sys.path.insert(0, script_dir + '/lib/')
 profile_path = config.kiln_profiles_directory
 
-from temp import f_to_c, c_to_f, to_c
-from oven import SimulatedOven, RealOven, Profile
-from ovenWatcher import OvenWatcher
-from scheduler import Scheduler
-from tuner import Tuner, DEFAULT_METHOD
-from alerts import (AlertStore, AlertManager, LogSink, MqttSink,
+from kiln_controller.lib.temp import f_to_c, c_to_f, to_c
+from kiln_controller.lib.oven import SimulatedOven, RealOven, Profile
+from kiln_controller.lib.ovenWatcher import OvenWatcher
+from kiln_controller.lib.scheduler import Scheduler
+from kiln_controller.lib.tuner import Tuner, DEFAULT_METHOD
+from kiln_controller.lib.alerts import (AlertStore, AlertManager, LogSink, MqttSink,
                     WebhookSink, ALERTS, validate_delivery)
-from mqttout import enabled as mqtt_enabled
+from kiln_controller.lib.mqttout import enabled as mqtt_enabled
 
 app = bottle.Bottle()
 
