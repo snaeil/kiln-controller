@@ -182,6 +182,349 @@ def test_gather_log_lines_has_no_timeout():
     assert 'journalctl' in src
 
 
+def test_gather_log_lines_bounded_query(monkeypatch):
+    # since/until bound the journal query; bounds are validated so only
+    # calendar timestamps reach the command line
+    seen = {}
+
+    def fake_check_output(cmd, **kwargs):
+        seen['cmd'] = cmd
+        return b''
+
+    monkeypatch.setattr(controller.subprocess, 'check_output',
+                        fake_check_output)
+    assert controller.gather_log_lines(since='2026-08-12 19:20:18',
+                                       until='2026-08-12 20:00:00') == []
+    assert '--since' in seen['cmd'] and '--until' in seen['cmd']
+    with pytest.raises(ValueError):
+        controller.gather_log_lines(since='2026-08-12"; rm -rf /')
+
+
+########################################################################
+# firing export (config tab csv): parsing, consolidation, endpoints.
+# the full journal replay runs in a background thread; request
+# handlers only serve the snapshot or run bounded queries, so a big
+# journal can never stall the server again.
+########################################################################
+
+_FIRING_L1 = ('x 2026-08-12 19:20:18,315 INFO oven: '
+              'Running schedule cone-05 starting at 0 minutes')
+_FIRING_S1 = ('x 2026-08-12 19:20:18,345 INFO oven: '
+              'temp=65.00, target=200.00, error=135.00, pid=0.00, '
+              'p=468.45, i=0.00, d=0.00, heat_on=0.40, heat_off=1.60, '
+              'run_time=0, total_time=54600, time_left=54599')
+_FIRING_S2 = ('x 2026-08-12 19:20:20,348 INFO oven: '
+              'temp=65.03, target=200.00, error=134.97, pid=0.00, '
+              'p=468.34, i=0.00, d=0.00, heat_on=0.40, heat_off=1.60, '
+              'run_time=2, total_time=54600, time_left=54598')
+_FIRING_L2 = ('x 2026-08-12 19:32:07,392 INFO oven: '
+              'Running schedule cone-05 starting at 4 minutes')
+_FIRING_S3 = ('x 2026-08-12 19:32:09,394 INFO oven: '
+              'temp=66.00, target=200.00, error=134.00, pid=0.00, '
+              'p=1.00, i=0.00, d=0.00, heat_on=0.40, heat_off=1.60, '
+              'run_time=0, total_time=54600, time_left=54598')
+_FIRING_RESUME = ('x 2026-08-12 19:32:07,380 INFO oven: automatically '
+                  'restarting profile = '
+                  '/home/jbruce/repos/kiln-controller/storage/profiles/'
+                  'cone-05.json at minute = ')
+
+
+@pytest.fixture
+def firings_state():
+    '''pristine firing snapshot, restored after the test.'''
+    state = controller._firings_state
+    saved = {k: (list(v) if isinstance(v, list) else v)
+             for k, v in state.items()}
+    state.update({"metas": [], "last_line": None, "last_stamp": None,
+                  "resume_pending": None,
+                  "updated": 0.0, "refreshing": False, "error": None})
+    state.pop("starts_seen", None)
+    yield state
+    state.update(saved)
+
+
+def test_parse_firings_groups_samples():
+    firings = controller.parse_firings([_FIRING_L1, _FIRING_S1, _FIRING_S2])
+    assert len(firings) == 1
+    firing = firings[0]
+    assert (firing['id'], firing['profile']) == (0, 'cone-05')
+    assert firing['start'] == '2026-08-12 19:20:18,315'
+    assert firing['end'] == '2026-08-12 19:20:20,348'
+    assert len(firing['samples']) == 2
+    assert firing['samples'][0]['temp'] == '65.00'
+    assert firing['resumed'] is False
+
+
+def test_parse_firings_detects_resume_marker():
+    firings = controller.parse_firings([_FIRING_RESUME, _FIRING_L2])
+    assert firings[0]['resumed'] is True
+
+
+def test_consolidate_firings_merges_restart_resume():
+    # resume marker merges regardless of the gap; without one, only a
+    # same-profile start within the merge window merges
+    lines = [_FIRING_L1, _FIRING_S1,
+             _FIRING_RESUME, _FIRING_L2, _FIRING_S3]
+    merged = controller.consolidate_firings(controller.parse_firings(lines))
+    assert len(merged) == 1
+    assert merged[0]['samples'] == \
+        controller.parse_firings(lines)[0]['samples'] + \
+        controller.parse_firings(lines)[1]['samples']
+    assert merged[0]['start'] == '2026-08-12 19:20:18,315'
+    assert merged[0]['end'] == '2026-08-12 19:32:09,394'
+
+
+def test_consolidate_firings_splits_profile_and_gap():
+    def run_line(ts, name):
+        return ('x %s INFO oven: Running schedule %s starting at 0 minutes'
+                % (ts, name))
+
+    def sample_line(ts):
+        return ('x %s INFO oven: temp=65.00, target=200.00, error=1.00, '
+                'pid=0.00, p=1.00, i=0.00, d=0.00, heat_on=0.40, '
+                'heat_off=1.60, run_time=0, total_time=100, time_left=100'
+                % ts)
+
+    lines = [run_line('2026-08-12 19:20:18,000', 'a'),
+             sample_line('2026-08-12 19:20:18,100'),
+             # same profile 44s later: continuation
+             run_line('2026-08-12 19:21:02,000', 'a'),
+             sample_line('2026-08-12 19:21:02,100'),
+             # same profile 39min later: a new firing
+             run_line('2026-08-12 20:00:00,000', 'a'),
+             sample_line('2026-08-12 20:00:02,000'),
+             # other profile: a new firing
+             run_line('2026-08-12 20:05:00,000', 'b'),
+             sample_line('2026-08-12 20:05:02,000')]
+    merged = controller.consolidate_firings(controller.parse_firings(lines))
+    assert [(f['id'], f['profile'], len(f['samples'])) for f in merged] == \
+        [(0, 'a', 2), (2, 'a', 1), (3, 'b', 1)]
+
+
+def test_merge_lines_consolidates_snapshot(firings_state):
+    assert controller._merge_firing_lines(
+        [_FIRING_L1, _FIRING_S1, _FIRING_RESUME,
+         _FIRING_L2, _FIRING_S3]) == 'ok'
+    metas = firings_state['metas']
+    assert len(metas) == 1
+    assert metas[0]['samples'] == 2
+    assert metas[0]['start'] == '2026-08-12 19:20:18,315'
+    assert metas[0]['end'] == '2026-08-12 19:32:09,394'
+
+
+def test_merge_lines_lost_anchor(firings_state):
+    firings_state['last_line'] = 'gone from the journal'
+    assert controller._merge_firing_lines(['something else']) == \
+        'lost-anchor'
+
+
+def _seed_db(tmp_path, firings=1, samples_per=2, profile="cone-05"):
+    '''seed a tmp firings.db; returns [(db_id, run_started)]. db ids
+    are stable autoincrement ids, newest last.'''
+    from firing_db import FiringDb
+    path = str(tmp_path / "firings.db")
+    db = FiringDb(path, prune_on_start=False)
+    ids = []
+    for i in range(firings):
+        started = 1700000000.0 + i * 10000
+        for j in range(samples_per):
+            db.record_state({
+                'runtime': j * 2, 'temperature': 65.0 + j,
+                'target': 200.0, 'state': 'RUNNING', 'heat': 1.0,
+                'totaltime': 100, 'cost': 0.1, 'heat_rate': 50.0,
+                'catching_up': False, 'temp_errors': 0,
+                'profile': profile if firings == 1 else "%s-%d" % (profile, i),
+                'run_id': i + 1,
+                'pidstats': {'p': 1.0, 'i': 0.5, 'd': 0.1,
+                             'err': 135.0, 'pid': 2.0, 'out': 0.5},
+                'run_started': started})
+        row = db._con.execute(
+            "SELECT id FROM firings WHERE run_started = ?",
+            (started,)).fetchone()
+        ids.append((row[0], started))
+    db.close()
+    return path, ids
+
+
+def _use_db(monkeypatch, path):
+    monkeypatch.setattr(config, 'firing_db_file', path, raising=False)
+
+
+def test_api_firings_lists_newest_first(monkeypatch, tmp_path):
+    # the request path only runs a fast indexed db query
+    path, ids = _seed_db(tmp_path, firings=2, profile="cone-05")
+    _use_db(monkeypatch, path)
+    resp = json.loads(controller.api_firings())
+    assert resp['success'] is True
+    assert resp['refreshing'] is False
+    assert resp['error'] is None
+    assert [f['profile'] for f in resp['firings']] == \
+        ['cone-05-1', 'cone-05-0']
+    assert resp['firings'][0]['samples'] == 2
+    assert resp['firings'][0]['id'] == ids[1][0]
+
+
+def test_api_firings_empty_db(monkeypatch, tmp_path):
+    from firing_db import FiringDb
+    path = str(tmp_path / "empty.db")
+    FiringDb(path, prune_on_start=False).close()
+    _use_db(monkeypatch, path)
+    resp = json.loads(controller.api_firings())
+    assert resp['success'] is True
+    assert resp['firings'] == []
+
+
+def test_api_firings_kicks_stale_refresh(monkeypatch, tmp_path):
+    # the db listing is always current: no background refresh needed
+    path, _ = _seed_db(tmp_path)
+    _use_db(monkeypatch, path)
+    resp = json.loads(controller.api_firings())
+    assert resp['success'] is True
+    assert resp['refreshing'] is False
+
+
+def test_api_firing_csv_serves_db_samples(monkeypatch, tmp_path):
+    path, ids = _seed_db(tmp_path, firings=1, samples_per=3)
+    _use_db(monkeypatch, path)
+    resp = controller.api_firing_csv(str(ids[0][0]))
+    assert resp.status_code == 200
+    assert resp.headers['Content-Type'] == 'text/csv'
+    assert 'attachment' in resp.headers['Content-Disposition']
+    rows = resp.body.strip().splitlines()
+    assert rows[0].split(',') == controller.FIRING_CSV_COLUMNS
+    assert len(rows) == 4  # header plus three samples
+    assert 'cone-05' in rows[1]
+
+
+def test_api_firing_csv_rejects_bad_ids(monkeypatch, tmp_path):
+    path, _ = _seed_db(tmp_path)
+    _use_db(monkeypatch, path)
+    assert controller.api_firing_csv('nope').status_code == 400
+    assert controller.api_firing_csv('99').status_code == 404
+
+
+def test_api_firings_refresh_starts_background(monkeypatch):
+    # refresh is a no-op now: the db listing never goes stale
+    assert controller.api_firings_refresh() == {"success": True,
+                                                "refreshing": False}
+
+
+def _tail_lines_chronological():
+    '''chronological journal window: three separate firings, newest last.'''
+    return [
+        'x 2026-08-16 14:04:33,776 INFO oven: Running schedule test-fast '
+        'starting at 0 minutes',
+        'x 2026-08-16 14:05:44,295 INFO oven: Running schedule candling '
+        'starting at 0 minutes',
+        'x 2026-08-17 02:51:57,993 INFO oven: Running schedule glaze '
+        'starting at 0 minutes',
+        'x 2026-08-17 02:52:00,000 INFO oven: temp=70.00, target=150.00, '
+        'error=1.00, pid=1.00, p=1.00, i=0.00, d=0.00, heat_on=2.00, '
+        'heat_off=0.00, run_time=0, total_time=200, time_left=200',
+    ]
+
+
+def test_reverse_tail_lines_stops_after_enough_starts(monkeypatch):
+    # the reverse tail stops the journal once enough firing starts
+    # are seen, so a huge journal is never fully read
+    seen = {}
+
+    class FakeStdout(list):
+        closed = False
+
+        def close(self):
+            self.closed = True
+
+    class FakeProc(object):
+        def __init__(self):
+            # newest-first, with more lines after the second start
+            # that must never be read
+            self.stdout = FakeStdout(
+                _tail_lines_chronological()[::-1] + ['OLD LINE'])
+
+        def terminate(self):
+            seen['terminated'] = True
+
+        def wait(self, timeout=None):
+            return 0
+
+    monkeypatch.setattr(controller.subprocess, 'Popen',
+                        lambda *a, **k: FakeProc())
+    assert list(controller._reverse_tail_lines(2)) == \
+        _tail_lines_chronological()[::-1][:3]
+    assert seen.get('terminated') is True
+
+
+def test_tail_build_uses_recent_window(monkeypatch, firings_state):
+    # when the last week holds enough firing starts only that small
+    # window is parsed (seconds, not minutes)
+    assert controller.FIRING_LIST_LIMIT + 1 == 21
+    many = []
+    for i in range(21):
+        many.append('x 2026-10-03 12:%02d:00,000 INFO oven: Running '
+                    'schedule p%d starting at 0 minutes' % (i, i))
+    monkeypatch.setattr(controller, 'gather_log_lines',
+                        lambda since=None, until=None: list(many))
+
+    def no_reverse(want):
+        raise AssertionError('slow path must not run')
+
+    monkeypatch.setattr(controller, '_reverse_tail_lines', no_reverse)
+    controller._tail_build_firings()
+    metas = firings_state['metas']
+    assert len(metas) == 20
+    assert metas[0]['profile'] == 'p1'  # oldest extra start bounds it
+    assert metas[-1]['profile'] == 'p20'
+
+
+def test_tail_build_lists_recent_firings(monkeypatch, firings_state):
+    # too few starts in the recent window: stream the journal tail
+    # newest-first instead
+    monkeypatch.setattr(controller, 'gather_log_lines',
+                        lambda since=None, until=None: [])
+    monkeypatch.setattr(controller, '_reverse_tail_lines',
+                        lambda want:
+                        iter(_tail_lines_chronological()[::-1]))
+    controller._tail_build_firings()
+    metas = firings_state['metas']
+    assert [m['profile'] for m in metas] == ['test-fast', 'candling',
+                                            'glaze']
+    assert metas[-1]['samples'] == 1
+    # the newest raw line anchors incremental refreshes
+    assert firings_state['last_line'].startswith('x 2026-08-17 02:52:00')
+    assert firings_state['last_stamp'] == '2026-08-17 02:52:00'
+    # each firing is bounded by the next firing's start
+    assert metas[0]['until'] == '2026-08-16 14:05:44'
+    assert metas[-1]['until'] is None
+
+
+def test_tail_build_empty_journal(monkeypatch, firings_state):
+    monkeypatch.setattr(controller, 'gather_log_lines',
+                        lambda since=None, until=None: [])
+    monkeypatch.setattr(controller, '_reverse_tail_lines',
+                        lambda want: iter([]))
+    controller._tail_build_firings()
+    assert firings_state['metas'] == []
+    assert firings_state['last_line'] is None
+
+
+def test_api_firings_ids_are_stable(monkeypatch, tmp_path):
+    path, ids = _seed_db(tmp_path, firings=3, samples_per=1,
+                         profile="glaze")
+    _use_db(monkeypatch, path)
+    resp = json.loads(controller.api_firings())
+    # newest first, stable db ids (not positional indexes)
+    assert [(f['id'], f['profile']) for f in resp['firings']] == \
+        [(ids[2][0], 'glaze-2'), (ids[1][0], 'glaze-1'),
+         (ids[0][0], 'glaze-0')]
+    # csv addresses the db id directly
+    csv_resp = controller.api_firing_csv(str(ids[2][0]))
+    assert csv_resp.status_code == 200
+    assert 'glaze-2' in csv_resp.body
+
+
+
+
 ########################################################################
 # config helpers
 ########################################################################
@@ -1626,6 +1969,31 @@ def test_handle_storage_put_failure(monkeypatch, tmp_path):
     controller.handle_storage()
     reply = json.loads(ws.sent[0])
     assert reply['resp'] == 'FAIL'
+
+
+def test_handle_storage_put_invalid_name_reports_error(monkeypatch, tmp_path):
+    # names become filenames, so ones with spaces are rejected with an
+    # error the ui shows instead of the overwrite confirm
+    monkeypatch.setattr(controller, 'profile_path', str(tmp_path))
+    ws = FakeWebSocket([json.dumps({'cmd': 'PUT', 'profile': {'name': 'has spaces', 'data': [[0, 32]]}})])
+    monkeypatch.setattr(controller, 'get_websocket_from_request', lambda: ws)
+    monkeypatch.setattr(controller.time, 'sleep', lambda secs: None)
+    controller.handle_storage()
+    reply = json.loads(ws.sent[0])
+    assert reply['resp'] == 'FAIL'
+    assert 'invalid schedule name' in reply['error']
+    assert os.listdir(str(tmp_path)) == []
+
+
+def test_handle_storage_put_valid_name_ok(monkeypatch, tmp_path):
+    monkeypatch.setattr(controller, 'profile_path', str(tmp_path))
+    ws = FakeWebSocket([json.dumps({'cmd': 'PUT', 'profile': {'name': 'fine-name', 'data': [[0, 32]]}})])
+    monkeypatch.setattr(controller, 'get_websocket_from_request', lambda: ws)
+    monkeypatch.setattr(controller.time, 'sleep', lambda secs: None)
+    controller.handle_storage()
+    reply = json.loads(ws.sent[0])
+    assert reply['resp'] == 'OK'
+    assert 'error' not in reply
 
 
 def test_raw_url_without_repo(monkeypatch):

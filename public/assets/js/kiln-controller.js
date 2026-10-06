@@ -41,6 +41,19 @@ try {
 } catch (e) {
     all = [];
 }
+// high-water mark: max pidstats.time seen via history or live feed.
+// live ticks at or below it are duplicates of backfilled history and
+// must not be appended twice. localStorage is only a warm cache now
+// (the server db is the source of truth), so re-seed from it.
+var last_sample_time = -Infinity;
+for (var _ri = 0; _ri < all.length; _ri++) {
+    if (all[_ri].time > last_sample_time) { last_sample_time = all[_ri].time; }
+}
+// guards history backfills: each fetch gets a sequence number and the
+// run it targets; stale responses (superseded, or for a previous run)
+// are discarded instead of corrupting the current graphs.
+var history_seq = 0;
+var history_loaded_for = null;
 var charts = {};
 var detailsInited = false;
 
@@ -66,6 +79,9 @@ function flush_all() {
 }
 function clear_persisted_all() {
     all = [];
+    last_sample_time = -Infinity;
+    history_loaded_for = null;
+    history_seq++;
     if (save_timer) {
         clearTimeout(save_timer);
         save_timer = null;
@@ -95,6 +111,113 @@ function prune_persisted_all(cutoff) {
     }
 }
 window.addEventListener('pagehide', flush_all);
+
+/* ---------------------------------------------------------------------------
+   Firing history backfill - the db is the source of truth for what has
+   happened so far in the current firing. a client that joins mid-firing
+   (or comes back after a drop) fetches /api/history once per run and
+   merges it with the live websocket feed:
+   - the overview series is replaced with the full firing (plus any live
+     points that arrived after the history snapshot),
+   - details entries are appended only when newer than last_sample_time,
+     so reconnect gaps close without duplicating anything.
+   graphs redraw from the merge; numeric displays keep updating from the
+   live ticks (next tick at most ~2s away).
+--------------------------------------------------------------------------- */
+
+function historyEntryFromRow(cols, row) {
+    // one HISTORY_COLS row -> {live, detail}, applying the same
+    // transforms the live path applies (err negated, out as percent,
+    // derived datetime/catchingup) so history and live render alike.
+    function v(name) {
+        var i = cols.indexOf(name);
+        return i < 0 ? null : row[i];
+    }
+    var t = v('t');
+    var err = v('err');
+    var out = v('out');
+    var cu = !!v('cu');
+    var ispoint = v('isp');
+    var detail = {
+        time: t,
+        timeDelta: v('td'),
+        setpoint: v('sp'),
+        ispoint: ispoint,
+        err: (err === null || err === undefined) ? err : -err,
+        errDelta: v('ed'),
+        p: v('p'),
+        i: v('i'),
+        d: v('d'),
+        kp: v('kp'),
+        ki: v('ki'),
+        kd: v('kd'),
+        pid: v('pid'),
+        out: (out === null || out === undefined) ? out : out * 100,
+        datetime: (t === null || t === undefined) ? '' : unix_to_yymmdd_hhmmss(t),
+        catching_up: cu,
+        temp_errors: v('te')
+    };
+    if (cu) { detail.catchingup = ispoint; }
+    return { live: [v('rt'), v('temp'), t], detail: detail };
+}
+
+function mergeHistory(cols, rows) {
+    // fold a full-firing history snapshot into the live structures.
+    // returns the number of details entries appended. stale live
+    // points (already covered by the snapshot) are dropped; live
+    // points newer than the snapshot are kept after it.
+    var fresh = [];
+    var added = 0;
+    var maxT = last_sample_time;
+    var snapMax = -Infinity;
+    var i, h;
+    for (i = 0; i < rows.length; i++) {
+        h = historyEntryFromRow(cols, rows[i]);
+        fresh.push(h.live);
+        if (h.detail.time !== null && h.detail.time !== undefined &&
+                h.detail.time > last_sample_time) {
+            all.push(h.detail);
+            added++;
+        }
+        if (h.detail.time > maxT) { maxT = h.detail.time; }
+        if (h.detail.time > snapMax) { snapMax = h.detail.time; }
+    }
+    // keep live points the snapshot does not cover (arrived after it
+    // was taken, or timeless): the snapshot can lag the watermark when
+    // live ticks landed during the fetch.
+    var tail = [];
+    for (i = 0; i < graph.live.data.length; i++) {
+        var p = graph.live.data[i];
+        if (p.length < 3 || p[2] === null || p[2] === undefined || p[2] > snapMax) {
+            tail.push(p);
+        }
+    }
+    graph.live.data = fresh.concat(tail);
+    last_sample_time = maxT;
+    if (added) { persist_all(); }
+    syncChartData();
+    updateAxis();
+    if (detailsInited) { drawall(windowed_data()); }
+    return added;
+}
+
+function backfillHistory(rs) {
+    // fetch this firing's history once per run; concurrent or stale
+    // responses are discarded via the sequence guard and run check.
+    var seq = ++history_seq;
+    apiGet('/api/history?run_started=' + encodeURIComponent(rs), function(resp) {
+        if (seq !== history_seq) { return; }
+        if (rs !== run_started) { return; }
+        if (!resp || !resp.success) { return; }
+        history_loaded_for = rs;
+        var rows = resp.rows || [];
+        mergeHistory(resp.cols, rows);
+        // temporary toast reporting the transfer; auto-dismisses.
+        if (rows.length > 0) {
+            showGrowl('<i class="bi bi-database"></i>&nbsp;Loaded ' + rows.length + ' points of firing history.', 'success', 5000);
+        }
+    });
+}
 
 var TABS = ['overview', 'details', 'profiles', 'config'];
 
@@ -241,6 +364,7 @@ function showTab(name) {
     }
     if (name === 'details') {
         initDetails();
+        loadFirings();
     } else if (name === 'profiles') {
         renderProfiles();
         loadRemoteProfiles();
@@ -542,26 +666,39 @@ function setEditMode(on) {
        label.title = profileDescription(name);
    }
 
-   function toggleSimBadge(show)
-   {
-       var badge = document.getElementById('sim_badge');
-       if (!badge) { return; }
-       badge.style.display = show ? 'inline-flex' : 'none';
-   }
+    function toggleSimBadge(show)
+    {
+        var badge = document.getElementById('sim_badge');
+        if (!badge) { return; }
+        badge.style.display = show ? 'inline-flex' : 'none';
+    }
 
-   function updateOverviewStatus()
-   {
-       var badge = document.getElementById('overview_status');
-       if (!badge) { return; }
-       var status = {
-           IDLE:    { label: 'Idle',    color: 'secondary' },
-           RUNNING: { label: 'Running', color: 'success' },
-           PAUSED:  { label: 'Paused',  color: 'warning' },
-           TUNING:  { label: 'Tuning',  color: 'info' }
-       }[state] || { label: state || 'Idle', color: 'secondary' };
-       badge.className = 'badge overview-status text-bg-' + status.color;
-       badge.innerHTML = status.label;
-   }
+    function updateOverviewStatus()
+    {
+        var badge = document.getElementById('overview_status');
+        if (!badge) { return; }
+        var status = {
+            IDLE:    { label: 'Idle',    color: 'secondary' },
+            RUNNING: { label: 'Running', color: 'success' },
+            PAUSED:  { label: 'Paused',  color: 'warning' },
+            TUNING:  { label: 'Tuning',  color: 'info' }
+        }[state] || { label: state || 'Idle', color: 'secondary' };
+        badge.className = 'badge overview-status text-bg-' + status.color;
+        badge.innerHTML = status.label;
+    }
+
+    function updateOverviewTemps(temperature, target)
+    {
+        // Actual tracks the live sensor even when idle so the kiln temp
+        // stays visible while it cools after a firing; a '--' target
+        // means no schedule is driving the kiln (idle).
+        var t = document.getElementById('overview_temp');
+        if (t && temperature !== undefined && temperature !== null && temperature !== '--') { t.innerHTML = rnd(temperature); }
+        var s = document.getElementById('overview_target');
+        if (s && target !== undefined && target !== null) {
+            s.innerHTML = (target === '--' ? '--' : rnd(target));
+        }
+    }
 
    function adoptProfile(name)
    {
@@ -817,9 +954,29 @@ function toggleLive()
     chart.update('none');
 }
 
+function slugifyProfileName(name) {
+    // schedule names become filenames (<name>.json), so only a safe
+    // character set survives saving: runs of whitespace become a
+    // single dash, anything outside letters/numbers/dots/dashes/
+    // underscores is dropped, and leading/trailing dots and dashes
+    // are trimmed. returns '' when nothing usable remains.
+    return String(name == null ? '' : name)
+        .trim()
+        .replace(/\s+/g, '-')
+        .replace(/[^A-Za-z0-9._-]+/g, '')
+        .replace(/^[-.]+/, '')
+        .replace(/[-.]+$/, '');
+}
+
 function saveProfile()
 {
-    var name = $('form_profile_name').value;
+    var name = slugifyProfileName($('form_profile_name').value);
+    if (!name) {
+        showGrowl("<i class=\"bi bi-exclamation-triangle-fill\"></i> <b>ERROR 94:</b><br/>Please enter a schedule name using letters, numbers, dots, dashes or underscores.", 'error', 5000);
+        return false;
+    }
+    // show the name that will actually be saved
+    $('form_profile_name').value = name;
     var data = [];
     var last = -1;
 
@@ -996,11 +1153,12 @@ function importRemoteProfile(path) {
 }
 
 function shareProfile() {
-    var name = $('form_profile_name').value;
+    var name = slugifyProfileName($('form_profile_name').value);
     if (!name) {
         showGrowl('ERROR 99:<br/>Enter a schedule name first.', 'error', 5000);
         return;
     }
+    $('form_profile_name').value = name;
     if (!graph.profile.data || graph.profile.data.length < 2) {
         showGrowl('ERROR 99:<br/>A schedule needs at least two points to share.', 'error', 5000);
         return;
@@ -1706,6 +1864,19 @@ function percent_catching_up(data) {
   return total ? slip / total * 100 : 0;
 }
 
+// pure: seconds spent catching up (schedule shifted waiting for the
+// kiln), for the TIME box on the details tab. the CATCH UP box shows
+// the same slip as a percentage.
+function catching_up_seconds(data) {
+  var slip = 0;
+  for (var i = 0; i < data.length; i++) {
+    if (data[i].catching_up) {
+      slip += data[i].timeDelta || 0;
+    }
+  }
+  return slip;
+}
+
 function clock_tick(val) {
   return new Date(val * 1000).toLocaleTimeString([], { hour12: false });
 }
@@ -1973,6 +2144,138 @@ function download_dump() {
 }
 
 /* ---------------------------------------------------------------------------
+   Firing CSV export - past firings stored in the controller database.
+   The dropdown lists the last few firings (most recent first); the
+   download hits /api/firings/<id>/csv which renders the stored
+   samples to csv server-side on a worker thread.
+--------------------------------------------------------------------------- */
+
+function shortStamp(s) {
+    // "2026-08-12 22:20:38,992" -> "2026-08-12 22:20:38"
+    return String(s == null ? '' : s).split(',')[0];
+}
+
+// pure: one dropdown row. shows the firing's start and end wall-clock
+// times plus its length and sample count, e.g.
+// "#16 cone-05-long-bisque — 2026-08-12 22:20:38 → 2026-08-13 07:15:04 (8:54:25, 16017 samples)"
+function firingLabel(f) {
+    var when = shortStamp(f.start) || ('firing ' + f.id);
+    if (f.end) { when += ' \u2192 ' + shortStamp(f.end); }
+    var extra = f.samples + ' samples';
+    if (f.duration) { extra = formatDuration(f.duration) + ', ' + extra; }
+    return '#' + f.id + ' ' + f.profile + ' \u2014 ' + when + ' (' + extra + ')';
+}
+
+function loadFirings() {
+  var sel = $('firing_select');
+  if (!sel) { return; }
+  if (firings_poll_timer) {
+    clearTimeout(firings_poll_timer);
+    firings_poll_timer = null;
+  }
+  sel.innerHTML = '<option value="">Loading firings&hellip;</option>';
+  fetch('/api/firings')
+    .then(function(r) { return r.json(); })
+    .then(function(resp) {
+      if (!resp || !resp.success) {
+        throw new Error((resp && resp.error) || 'unknown error');
+      }
+      renderFirings(resp);
+    })
+    .catch(function(err) {
+      sel.innerHTML = '<option value="">Could not load firings</option>';
+      setFiringStatus('Could not load firings: ' + err);
+      showGrowl('<i class="bi bi-exclamation-triangle-fill"></i> Could not load firings: ' + err, 'error', 5000);
+    });
+}
+
+var firings_poll_timer = null;
+
+function setFiringStatus(text) {
+  var el = $('firing_status');
+  if (el) { el.innerHTML = text; }
+}
+
+function renderFirings(resp) {
+  var sel = $('firing_select');
+  if (!sel) { return; }
+  var rows = resp.firings || [];
+  if (rows.length === 0) {
+    sel.innerHTML = '<option value="">' +
+      (resp.refreshing ? 'Building firing list in the background&hellip;'
+                       : 'No firings recorded yet') +
+      '</option>';
+  } else {
+    // the listing arrives newest first, so the latest firing is on
+    // top and selected by default
+    sel.innerHTML = rows.map(function(f) {
+      return '<option value="' + f.id + '">' + escHtml(firingLabel(f)) + '</option>';
+    }).join('');
+  }
+  if (resp.error) {
+    setFiringStatus('Last background read failed: ' + escHtml(resp.error));
+  } else if (resp.refreshing) {
+    setFiringStatus('Loading the firing list&hellip;');
+  } else if (resp.updated) {
+    var ago = Math.max(0, Date.now() / 1000 - resp.updated);
+    setFiringStatus('Firing list read from the database ' + formatDuration(ago) + ' ago.');
+  }
+  // while the background read runs, re-check until it lands
+  if (resp.refreshing) {
+    if (firings_poll_timer) { clearTimeout(firings_poll_timer); }
+    firings_poll_timer = setTimeout(loadFirings, 10000);
+  }
+}
+
+function refreshFirings() {
+  setFiringStatus('Refreshing the firing list&hellip;');
+  fetch('/api/firings/refresh', { method: 'POST' })
+    .then(function(r) { return r.json(); })
+    .then(function() { loadFirings(); })
+    .catch(function(err) {
+      showGrowl('<i class="bi bi-exclamation-triangle-fill"></i> Could not refresh firings: ' + err, 'error', 5000);
+    });
+}
+
+function downloadFiringCsv() {
+  var sel = $('firing_select');
+  var id = sel ? sel.value : '';
+  if (!id) {
+    showGrowl('<i class="bi bi-exclamation-triangle-fill"></i> No firing selected.', 'error', 5000);
+    return;
+  }
+  fetch('/api/firings/' + encodeURIComponent(id) + '/csv')
+    .then(function(r) {
+      if (r.ok) {
+        var filename = 'firing-' + id + '.csv';
+        var disp = r.headers.get('Content-Disposition');
+        if (disp) {
+          var m = disp.match(/filename="([^"]+)"/);
+          if (m) { filename = m[1]; }
+        }
+        return r.blob().then(function(blob) {
+          return { blob: blob, filename: filename };
+        });
+      }
+      return r.json().then(function(err) {
+        throw new Error((err && err.error) || ('Firing CSV download failed (' + r.status + ')'));
+      });
+    })
+    .then(function(res) {
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(res.blob);
+      a.download = res.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(a.href);
+    })
+    .catch(function(err) {
+      showGrowl('<i class="bi bi-exclamation-triangle-fill"></i> ' + err.message, 'error', 8000);
+    });
+}
+
+/* ---------------------------------------------------------------------------
    Init
 --------------------------------------------------------------------------- */
 
@@ -2056,6 +2359,13 @@ function init()
         // offer to chain a firing after the one in progress.
         if (x.state) { oven_status = x; }
 
+        // freshness of this tick against the history watermark: a tick
+        // at or below last_sample_time duplicates backfilled history.
+        // computed once so the overview series and the details feed
+        // below agree on whether to store it (displays update either way).
+        var _st = (x.pidstats && x.pidstats.time !== undefined && x.pidstats.time !== null) ? x.pidstats.time : null;
+        var _is_new_sample = (_st === null || _st === undefined || _st > last_sample_time);
+
         if (x.type == "backlog")
         {
             // the backlog is the first message sent to a new client, so it
@@ -2084,6 +2394,14 @@ function init()
                 backlog_profile_name = typeof x.profile == 'object' ? x.profile.name : x.profile;
                 adoptProfile(backlog_profile_name);
             }
+
+            // a (re)connect only starts receiving live ticks from now;
+            // backfill the firing's history from the db so graphs show
+            // the whole run, not just the tail. the merge is idempotent
+            // (watermark dedupe), so reconnects just close the gap.
+            if (x.run_started) {
+                backfillHistory(x.run_started);
+            }
         }
 
         // a new run_started means a fresh firing has begun, no matter
@@ -2096,6 +2414,9 @@ function init()
             if (x.profile) {
                 adoptProfile(typeof x.profile == 'object' ? x.profile.name : x.profile);
             }
+            // the first ticks of a new run may predate this fetch;
+            // backfill picks up whatever the db already recorded.
+            backfillHistory(x.run_started);
         }
 
         // track which schedule is running so the Saved Schedules list
@@ -2123,26 +2444,49 @@ function init()
             {
                 updateSelectedProfileLabel();
 
-                graph.live.data.push([x.runtime, x.temperature]);
-                syncChartData();
-                updateAxis();
+                // skip samples already covered by a history backfill
+                // (reconnect overlap): displays below still update.
+                if (_is_new_sample) {
+                    if (_st !== null && _st !== undefined && _st > last_sample_time) { last_sample_time = _st; }
+                    graph.live.data.push([x.runtime, x.temperature, _st]);
+                    syncChartData();
+                    updateAxis();
+                }
 
                 var left = parseInt(x.totaltime-x.runtime);
                 var eta = formatDuration(left);
-                var elapsed = formatDuration(parseInt(x.runtime));
 
                 $('eta').innerHTML = eta;
-                $('elapsed').innerHTML = elapsed;
+                if (left > 0) {
+                    $('completes').innerHTML = unix_to_yymmdd_hhmmss(Date.now() / 1000 + left);
+                } else {
+                    $('completes').innerHTML = '--';
+                }
             }
             else
             {
                 updateSelectedProfileLabel();
                 $('eta').innerHTML = '--:--:--';
-                $('elapsed').innerHTML = '--:--:--';
+                $('completes').innerHTML = '--';
             }
 
             state_last = state;
 
+        }
+
+        // overview header temps: Actual always tracks the live sensor
+        // so it stays visible while the kiln cools after a firing.
+        // Set Point only applies while a schedule (or tuning) is driving
+        // the kiln; when idle there is no set point, so show '--' instead
+        // of the reset 0 value. pidstats is the fallback when the
+        // top-level fields are missing.
+        var _ovTemp = (x.temperature !== undefined ? x.temperature : (x.pidstats ? x.pidstats.ispoint : undefined));
+        var _ovTarget = (x.target !== undefined ? x.target : (x.pidstats ? x.pidstats.setpoint : undefined));
+        if (x.state !== undefined && x.state !== "RUNNING" && x.state !== "PAUSED" && x.state !== "TUNING") {
+            _ovTarget = '--';
+        }
+        if (_ovTemp !== undefined || _ovTarget !== undefined) {
+            updateOverviewTemps(_ovTemp, _ovTarget);
         }
 
         // tuning feed
@@ -2155,8 +2499,15 @@ function init()
             if (x.catching_up == true) {
                 x.pidstats.catchingup = x.pidstats.ispoint;
             }
-            all.push(x.pidstats);
-            persist_all();
+            // same watermark as the overview series: a live tick that
+            // duplicates backfilled history updates the displays but is
+            // not stored twice (_is_new_sample is shared so both feeds
+            // store a fresh tick exactly once).
+            if (_is_new_sample) {
+                last_sample_time = x.pidstats.time;
+                all.push(x.pidstats);
+                persist_all();
+            }
 
             if (detailsInited) {
                 drawall(windowed_data());
@@ -2170,6 +2521,7 @@ function init()
             $("target").innerHTML = rnd(x.pidstats.setpoint);
             $("heat-pct").innerHTML = rnd(x.pidstats.out);
             $("catching-up").innerHTML = rnd(percent_catching_up(all));
+            $("time-catchup").innerHTML = formatDuration(catching_up_seconds(all));
         }
 
         // during tuning, pidstats may be stale -- use top-level state
@@ -2185,6 +2537,17 @@ function init()
         if (x.cost !== undefined && x.cost !== null) {
             $("cost").innerHTML = Number(x.cost).toFixed(2);
             $("cost-currency").innerHTML = x.currency_type || '$';
+        }
+
+        // details TIME box: elapsed is wall-clock time since the
+        // firing started. x.runtime is schedule progress, not actual
+        // elapsed time, so it cannot be used here. run_started is
+        // stamped by the server when the run begins and goes stale
+        // once the run ends, so only show it while a firing is active.
+        if ((x.state === "RUNNING" || x.state === "PAUSED") && x.run_started) {
+            $("time-elapsed").innerHTML = formatDuration(Date.now() / 1000 - x.run_started);
+        } else {
+            $("time-elapsed").innerHTML = '--:--:--';
         }
     };
 
@@ -2283,7 +2646,10 @@ function init()
         {
             if(message.resp == "FAIL")
             {
-                if (confirm('Overwrite?'))
+                if (message.error) {
+                    showGrowl('<i class="bi bi-exclamation-triangle-fill"></i> <b>ERROR 94:</b><br/>Could not save schedule: ' + escHtml(message.error), 'error', 8000);
+                }
+                else if (confirm('Overwrite?'))
                 {
                     message.force=true;
                     ws_storage.send(JSON.stringify(message));

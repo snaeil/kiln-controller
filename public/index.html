@@ -61,9 +61,13 @@
       <span id="overview_status" class="badge overview-status text-bg-secondary">Idle</span>
       <span id="sim_badge" class="badge text-bg-danger sim-badge" style="display:none"><i class="bi bi-lightning-charge-fill"></i>&nbsp;Simulation</span>
      </div>
-     <div class="heading-times">
-      <span class="time-left"><span class="info-label">Time Left</span>&nbsp;<span class="info-value" id="eta">--:--:--</span></span>
-      <span class="time-left"><span class="info-label">Elapsed</span>&nbsp;<span class="info-value" id="elapsed">--:--:--</span></span>
+      <div class="heading-times">
+       <span class="time-left"><span class="info-label">Time Left</span>&nbsp;<span class="info-value" id="eta">--:--:--</span></span>
+       <span class="time-left"><span class="info-label">Completes</span>&nbsp;<span class="info-value" id="completes">--</span></span>
+      </div>
+     <div class="heading-temps">
+      <span class="time-left"><span class="info-label">Set Point</span>&nbsp;<span class="info-value" id="overview_target">--</span></span>
+      <span class="time-left"><span class="info-label">Actual</span>&nbsp;<span class="info-value" id="overview_temp">--</span></span>
      </div>
     </div>
      <div class="panel-body">
@@ -222,13 +226,13 @@
      </div>
     </div>
 
-    <div class="panel panel-default mt-3">
-     <div class="panel-heading"><strong>Debug</strong></div>
-     <div class="panel-body">
-      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="download_dump()" title="Download config, state, running profile, and logs"><i class="bi bi-download"></i>&nbsp; Config Dump</button>
-      <small class="text-muted ms-2">Please be patient&mdash;building the dump can take a few minutes.</small>
+     <div class="panel panel-default mt-3">
+      <div class="panel-heading"><strong>Debug</strong></div>
+      <div class="panel-body">
+       <button type="button" class="btn btn-outline-secondary btn-sm" onclick="download_dump()" title="Download config, state, running profile, and logs"><i class="bi bi-download"></i>&nbsp; Config Dump</button>
+       <small class="text-muted ms-2">Please be patient&mdash;building the dump can take a few minutes.</small>
+      </div>
      </div>
-    </div>
 
    </section>
 
@@ -293,6 +297,18 @@
       <div class="stat-bottom" id="cost">--</div>
      </div>
     </div>
+
+    <div class="stat-box" id="time-stats">
+     <div class="stat-tag">TIME</div>
+     <div class="stat-cell">
+      <div class="stat-top">elapsed</div>
+      <div class="stat-bottom" id="time-elapsed">--</div>
+     </div>
+     <div class="stat-cell">
+      <div class="stat-top">catch up</div>
+      <div class="stat-bottom" id="time-catchup">--</div>
+     </div>
+    </div>
    </div>
 
    <div class="charts">
@@ -332,6 +348,19 @@
     <div class="chart-panel">
      <div class="chart-title">Thermocouple Errors</div>
      <div class="chart-body"><canvas id="chart-temp-errors"></canvas></div>
+    </div>
+   </div>
+
+   <div class="panel panel-default mt-3">
+    <div class="panel-heading"><strong>Export Firing (CSV)</strong></div>
+    <div class="panel-body">
+     <p class="text-muted mb-2">Download a past firing as a CSV file, built from the controller database. The most recent firing is selected by default.</p>
+     <div class="d-flex align-items-center gap-2">
+      <select id="firing_select" class="form-select form-select-sm" style="max-width: 32rem"></select>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="downloadFiringCsv()" title="Download the selected firing as CSV"><i class="bi bi-download"></i>&nbsp; Download CSV</button>
+      <button type="button" class="btn btn-outline-secondary btn-sm" onclick="refreshFirings()" title="Reload the firing list"><i class="bi bi-arrow-clockwise"></i>&nbsp; Refresh</button>
+     </div>
+     <small class="text-muted" id="firing_status">The firing list is read from the controller database.</small>
     </div>
    </div>
 
