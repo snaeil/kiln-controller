@@ -1,4 +1,4 @@
-from lib.oven import Profile
+from kiln_controller.lib.oven import Profile
 import os
 import json
 

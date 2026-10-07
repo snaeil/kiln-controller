@@ -6,7 +6,7 @@ import types
 import pytest
 
 import kiln_controller.app.config as config
-import mqttout
+from kiln_controller.lib import mqttout
 
 
 class FakeClient:

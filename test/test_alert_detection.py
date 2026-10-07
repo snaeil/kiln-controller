@@ -12,10 +12,10 @@ import types
 
 import pytest
 
-from lib.alerts import ALERTS, AlertStore, AlertManager, LogSink
-from lib.oven import END_COMPLETED, END_STOPPED, Oven, Profile
-from lib.scheduler import Scheduler
-from lib.temp import delta_to_c, to_c
+from kiln_controller.lib.alerts import ALERTS, AlertStore, AlertManager, LogSink
+from kiln_controller.lib.oven import END_COMPLETED, END_STOPPED, Oven, Profile
+from kiln_controller.lib.scheduler import Scheduler
+from kiln_controller.lib.temp import delta_to_c, to_c
 import kiln_controller.app.config as config
 
 

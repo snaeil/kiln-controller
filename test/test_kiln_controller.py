@@ -14,8 +14,8 @@ import bottle
 import pytest
 
 import kiln_controller.app.config as config
-import oven
-import ovenWatcher
+import kiln_controller.lib.oven as oven
+import kiln_controller.lib.ovenWatcher as ovenWatcher
 
 
 class StubOven:

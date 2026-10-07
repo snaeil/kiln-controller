@@ -10,7 +10,7 @@ import types
 
 import pytest
 
-from lib.alerts import (DEFAULT_DELIVERY, AlertStore, MqttSink,
+from kiln_controller.lib.alerts import (DEFAULT_DELIVERY, AlertStore, MqttSink,
                         WebhookSink, alert_payload, validate_delivery)
 
 

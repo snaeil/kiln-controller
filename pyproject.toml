@@ -31,6 +31,7 @@ dependencies = [
     # untested - for mcp9600 and mcp9601
     # "adafruit-circuitpython-mcp9600 >=2.0.10"
     "typer>=0.27.2",
+    "pylint>=4.1.2",
 ]
 
 [project.scripts]

@@ -1,6 +1,6 @@
 import pytest
 
-from lib.temp import (
+from kiln_controller.lib.temp import (
     c_to_f,
     delta_to_c,
     delta_to_display,

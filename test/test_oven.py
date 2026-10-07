@@ -7,7 +7,7 @@ import types
 
 import pytest
 
-from lib.oven import (
+from kiln_controller.lib.oven import (
     DupFilter,
     Duplogger,
     Max31855_Error,
@@ -21,7 +21,7 @@ from lib.oven import (
     ThermocoupleTracker,
 )
 import kiln_controller.app.config as config
-from lib.temp import to_c
+from kiln_controller.lib.temp import to_c
 
 
 def get_profile(file="test-fast.json"):

@@ -2,7 +2,7 @@ import sqlite3
 import time
 
 import config
-from firing_db import FiringDb, get_max_firings
+from kiln_controller.lib.firing_db import FiringDb, get_max_firings
 
 
 def make_state(run_started, profile="p", run_id=1, runtime=0):

@@ -15,10 +15,10 @@ import uuid
 
 import pytest
 
-import alerts as alerts_module
-import oven
-import ovenWatcher
-from alerts import ALERTS, CRITICALITY_ORDER, CRITICAL, AlertStore
+import kiln_controller.lib.alerts as alerts_module
+from kiln_controller.lib import oven
+from kiln_controller.lib import ovenWatcher
+from kiln_controller.lib.alerts import ALERTS, CRITICALITY_ORDER, CRITICAL, AlertStore
 
 
 class StubOven:

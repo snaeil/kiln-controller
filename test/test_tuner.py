@@ -1,6 +1,6 @@
 import types
 
-from lib.tuner import Tuner
+from kiln_controller.lib.tuner import Tuner
 
 
 class StubOven:

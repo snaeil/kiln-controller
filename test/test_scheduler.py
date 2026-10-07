@@ -2,7 +2,7 @@ import time
 
 import pytest
 
-from lib.scheduler import Scheduler
+from kiln_controller.lib.scheduler import Scheduler
 
 
 @pytest.fixture

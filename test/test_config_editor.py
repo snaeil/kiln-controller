@@ -16,8 +16,8 @@ import uuid
 
 import pytest
 
-import oven
-import ovenWatcher
+import kiln_controller.lib.oven
+import kiln_controller.lib.ovenWatcher
 
 CONFIG_TMPL = '''simulate = True
 automatic_restarts = True
