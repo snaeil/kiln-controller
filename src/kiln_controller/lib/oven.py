@@ -149,11 +149,19 @@ class TempSensorReal(TempSensor):
             self.status.good()
             return temp
         except ThermocoupleError as tce:
+            raw = getattr(tce, "orig_message", None)
+            if raw and raw != tce.message:
+                detail = "%s (raw: %s)" % (tce.message, raw)
+            else:
+                detail = tce.message
             if tce.ignore:
-                log.error("Problem reading temp (ignored) %s" % (tce.message))
+                log.error("Problem reading temp (ignored) %s" % (detail))
                 self.status.good()
             else:
-                log.error("Problem reading temp %s" % (tce.message))
+                # exc_info logs the traceback including the chained
+                # underlying RuntimeError, so "unknown" errors can be
+                # diagnosed from the log.
+                log.error("Problem reading temp %s" % (detail), exc_info=True)
                 self.status.bad()
         return None
 
@@ -244,8 +252,11 @@ class Max31855(TempSensorReal):
             return self.thermocouple.temperature_NIST
         except RuntimeError as rte:
             if rte.args and rte.args[0]:
-                raise Max31855_Error(rte.args[0])
-            raise Max31855_Error('unknown')
+                raise Max31855_Error(rte.args[0]) from rte
+            # Bare RuntimeError() with no message has been seen from
+            # blinka/spi layers; keep the repr so the logs show more
+            # than just "unknown".
+            raise Max31855_Error(repr(rte)) from rte
 
 class ThermocoupleError(Exception):
     '''
@@ -463,6 +474,19 @@ class Oven(threading.Thread):
         self.ended_run_sequence = max(self.ended_run_sequence, self.run_sequence)
         self.idle_since = time.time()
         self.reset()
+        # the firing's identity ends here: clear the watcher's stamp
+        # synchronously so the save below writes run_started=None and
+        # later idle broadcasts/db writes cannot reuse the finished
+        # firing's stamp. tolerant of test stubs without clear().
+        try:
+            watcher = getattr(self, 'ovenwatcher', None)
+            if watcher is not None:
+                if hasattr(watcher, 'clear'):
+                    watcher.clear()
+                else:
+                    watcher.started = None
+        except Exception:
+            pass
         self.save_automatic_restart_state()
         self.end_of_run(reason, context, was_active)
 
@@ -780,9 +804,25 @@ class Oven(threading.Thread):
         # atomic write (tmp + rename) with fsync: a power cut mid-write
         # must leave either the previous state or the new one, never a
         # truncated file that can never resume.
+        # run_started (owned by the watcher) and ended_run_sequence are
+        # saved too so an automatic restart resumes the SAME firing
+        # identity instead of starting a new one in the db and ui.
         tmp = config.automatic_restart_state_file + ".tmp"
+        state = self.get_state()
+        watcher = getattr(self, 'ovenwatcher', None)
+        try:
+            if hasattr(watcher, 'active_run_started'):
+                started = watcher.active_run_started()
+            elif self.state in ('RUNNING', 'PAUSED'):
+                started = getattr(watcher, 'started', None)
+            else:
+                started = None
+            state['run_started'] = started.timestamp() if started else None
+        except Exception:
+            state['run_started'] = None
+        state['ended_run_sequence'] = self.ended_run_sequence
         with open(tmp, 'w', encoding='utf-8') as f:
-            json.dump(self.get_state(), f, ensure_ascii=False, indent=4)
+            json.dump(state, f, ensure_ascii=False, indent=4)
             f.flush()
             os.fsync(f.fileno())
         os.replace(tmp, config.automatic_restart_state_file)
@@ -841,6 +881,29 @@ class Oven(threading.Thread):
         profile = Profile(profile_json)
         resume_state = d.get("state")
         self.run_profile(profile, startat=startat, allow_seek=False)  # We don't want a seek on an auto restart.
+        # a restart continues the SAME firing, it does not start a new
+        # one: restore the saved run identity so the ui, the scheduler
+        # chain anchors (run:N) and the firing db (keyed by run_started)
+        # all treat pre- and post-reboot samples as one firing.
+        # old state files predate these keys and fall back to the fresh
+        # identity run_profile() just created.
+        try:
+            saved_run_id = int(d.get("run_id", 0) or 0)
+        except (TypeError, ValueError):
+            saved_run_id = 0
+        if saved_run_id > 0:
+            self.run_sequence = saved_run_id
+            try:
+                saved_ended = int(d.get("ended_run_sequence", 0) or 0)
+            except (TypeError, ValueError):
+                saved_ended = 0
+            if 0 <= saved_ended < saved_run_id:
+                self.ended_run_sequence = max(self.ended_run_sequence,
+                                              saved_ended)
+            else:
+                self.ended_run_sequence = max(self.ended_run_sequence,
+                                              saved_run_id - 1)
+        saved_run_started = d.get("run_started")
         if resume_state == "PAUSED":
             # the outage struck while paused: stay paused (and do not
             # silently unpause someone's kiln), runtime stays frozen.
@@ -852,7 +915,17 @@ class Oven(threading.Thread):
         # firing itself already resumed above).
         watcher = getattr(self, 'ovenwatcher', None)
         if watcher is not None:
-            watcher.record(profile)
+            try:
+                valid_started = (float(saved_run_started)
+                                 if saved_run_started is not None else None)
+            except (TypeError, ValueError):
+                valid_started = None
+            try:
+                watcher.record(profile, started=valid_started)
+            except TypeError:
+                # third-party/test stub with the old record(profile)
+                # signature: fall back to a fresh timestamp
+                watcher.record(profile)
         else:
             log.error("restarted without ovenwatcher; new clients will miss this run's backlog")
         self._emit('restart_resumed',
@@ -1092,10 +1165,12 @@ class RealOven(Oven):
         heat_on = float(self.time_step * pid)
         heat_off = float(self.time_step * (1 - pid))
 
-        # self.heat is for the front end to display if the heat is on
+        # self.heat is element-on seconds within this duty cycle, for
+        # the front end display (heat / time_step) and update_cost().
+        # it must stay in the same units as SimulatedOven (heat_on).
         self.heat = 0.0
         if heat_on > 0:
-            self.heat = 1.0
+            self.heat = heat_on
 
         if heat_on:
             self.output.heat(heat_on)
