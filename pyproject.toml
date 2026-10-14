@@ -40,11 +40,10 @@ kiln-controller = "kiln_controller.cli.main:app"
 
 [dependency-groups]
 dev = [
-    "black >=26.5.1,<27",
-    "mypy>=2.4.0",
     "pytest >=9.1.1,<10",
     "ruff >=0.16.9,<0.17",
     "tomli >=2.4.1,<3",
+    "ty>=0.0.87",
 ]
 
 [tool.ruff]

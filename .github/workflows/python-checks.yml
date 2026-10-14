@@ -13,7 +13,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13"]
+        python-version: ["3.11", "3.12", "3.13"]
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -24,25 +24,18 @@ jobs:
       - name: Install dependencies and tools
         run: |
           uv sync --all-groups
-      - name: Run format check with black
+      - name: Run format check
         run: |
-          uv run black --check .
-      - name: Run linter with pylint
+          uv run ruff format --check
+      - name: Run linter
         run: |
-          uv run pylint **/*.py
-      - name: Run type checks with mypy
-        if: always() # TODO: remove
+          uv run ruff check
+      - name: Run type check
         run: |
-          uv run mypy .
-      - name: Run unit tests with pytest
-        if: always() # TODO: remove
+          uv run ty check
+      - name: Run tests
         run: |
-          uv run pytest -v
-      - name: Run doctests with pytest
-        if: always() # TODO: remove
-        run: |
-          uv run pytest --doctest-modules
+          uv run pytest --cov=src --doctest-modules -v
       - name: Run audit
-        if: always() # TODO: remove
         run: |
           uv audit
