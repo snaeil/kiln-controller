@@ -31,7 +31,7 @@ disable-aautostart:
 	sudo systemctl daemon-reload
 
 test: dev-setup
-	uv run pytest Test -q
+	uv run pytest --cov=src test
 
 lint: dev-setup
 	uv run ruff check .
