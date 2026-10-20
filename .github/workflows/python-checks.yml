@@ -27,6 +27,8 @@ jobs:
         with:
           python-version: ${{ matrix.python-version }}
           enable-cache: true
+      - name: Install system prerequisites # needed for python version >= 3.13
+        run: sudo apt install swig
       - name: Sync dependencies (fails if uv.lock is stale)
         run: uv sync --all-groups --locked --python ${{ matrix.python-version }}
       - name: Run format check
